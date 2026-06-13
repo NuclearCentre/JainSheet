@@ -267,20 +267,6 @@ function buildGrid(){
       (function(rr,cc){
         td.addEventListener('mousedown',function(e){
           if(e.button!==0)return;
-<<<<<<< HEAD
-          // If currently editing a formula, clicking a cell appends its reference
-          if(editMode && _activeInp && _activeInp.value.startsWith('=')){
-            e.preventDefault();
-            e.stopPropagation();
-            var ref=cellId(rr,cc);
-            var cur=_activeInp.value;
-            // Replace trailing incomplete cell ref if any, else just append
-            _activeInp.value=cur.replace(/[A-Z]*\d*$/,'')+ref;
-            _activeInp.focus();
-            document.getElementById('formula-input').value=_activeInp.value;
-            // Highlight the clicked cell
-            selectCell(rr,cc);
-=======
           // If currently editing a formula, clicking a cell inserts its reference
           if(editMode && _activeInp && _activeInp.value.startsWith('=')){
             e.preventDefault();
@@ -299,14 +285,10 @@ function buildGrid(){
             document.querySelectorAll('.dc.sel').forEach(function(el){ el.classList.remove('sel'); });
             var clickedTd = document.getElementById('c-'+rr+'-'+cc);
             if(clickedTd) clickedTd.classList.add('sel');
->>>>>>> a405ada5383bc1a1b787943be848c23e9907c9a1
             return;
           }
           commitEdit();startSel(rr,cc,e);
         });
-<<<<<<< HEAD
-        td.addEventListener('mouseover',function(e){extSel(rr,cc,e);});
-=======
         td.addEventListener('mouseup',function(e){
           // On mouseup during formula edit with drag, finalize the range ref
           if(editMode && _activeInp && _activeInp.value.startsWith('=') && rangeStart){
@@ -338,7 +320,6 @@ function buildGrid(){
           }
           extSel(rr,cc,e);
         });
->>>>>>> a405ada5383bc1a1b787943be848c23e9907c9a1
         td.addEventListener('contextmenu',function(e){showCtx(e,rr,cc);});
         td.addEventListener('dblclick',function(){startInlineEdit(rr,cc);});
         td.addEventListener('mouseover',function(){showCommentTip(rr,cc);});

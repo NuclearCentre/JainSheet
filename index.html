@@ -9,7 +9,7 @@ html,body{height:100%;width:100%;overflow:hidden}
 body{font-family:Arial,sans-serif;font-size:12px;background:#f0f0f0;overflow:hidden;user-select:none}
 #app{display:flex;flex-direction:column;height:100vh;width:100%;background:#fff;overflow:hidden;position:fixed;top:0;left:0;right:0;bottom:0}
 #app>*{flex-shrink:0}
-#grid-container{flex:1 1 0 !important;flex-shrink:1 !important}
+/* duplicate removed - see #grid-container below */
 #title-bar{background:#1e6e3a;color:#fff;padding:5px 12px;font-size:13px;font-weight:bold;display:flex;align-items:center;gap:8px;-webkit-app-region:drag}
 #title-bar span{font-size:11px;opacity:0.75;font-weight:normal}
 #save-status{font-size:10px;margin-left:8px;opacity:0.85}
@@ -47,15 +47,15 @@ input.ri{padding:2px 3px;border-radius:3px;border:1px solid #ccc;background:#fff
 /* Grid */
 #grid-container{flex:1 1 0;overflow:auto;position:relative;min-height:0;min-width:0;background:#fff;display:block}
 #grid-wrap{width:max-content;min-width:100%}
-table#grid{border-collapse:collapse;table-layout:fixed;width:max-content}
-.ch,.rh{background:#f2f2f2;border:1px solid #d0d0d0;text-align:center;font-size:10px;font-weight:bold;color:#555;position:sticky;user-select:none;box-sizing:border-box}
-.rh{left:0;z-index:3;width:42px;min-width:42px}
-thead tr th{top:0;z-index:2}
+table#grid{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max-content;border-top:1px solid #b8b8b8;border-left:1px solid #b8b8b8}
+.ch,.rh{background:#f2f2f2;border-right:1px solid #b8b8b8;border-bottom:1px solid #b8b8b8;text-align:center;font-size:10px;font-weight:bold;color:#555;position:sticky;user-select:none;box-sizing:border-box;white-space:nowrap;overflow:hidden}
+.rh{left:0;z-index:3;width:52px;min-width:52px}
+thead tr th{top:0;z-index:2;height:24px}
 thead tr th.rh{z-index:4}
 .ch{width:82px;min-width:82px;padding:2px}
 .ch.col-sel{background:#c8e6c9;color:#1e6e3a}
 .rh.row-sel{background:#c8e6c9;color:#1e6e3a}
-.dc{border:1px solid #d0d0d0;padding:0;position:relative;height:22px;min-width:82px;background:#fff;box-sizing:border-box}
+.dc{border-right:1px solid #d0d0d0;border-bottom:1px solid #d0d0d0;padding:0;position:relative;height:22px;min-width:82px;background:#fff;box-sizing:border-box}
 .dc.sel{outline:2px solid #1e6e3a;outline-offset:-1px;z-index:2}
 .dc.sel.sel-in-range{outline:none}
 .dc.inr{background:#e8f5ed}
@@ -123,7 +123,7 @@ body.dark select.rs,body.dark input.ri{background:#333;color:#ccc;border-color:#
 body.dark #formula-bar{background:#252526;border-color:#444}
 body.dark #cell-addr{background:#333;color:#ccc;border-color:#555}
 body.dark #formula-input{background:#2d2d2d;color:#ddd;border-color:#555}
-body.dark .ch,.dark .rh{background:#2d2d2d;color:#aaa;border-color:#444}
+body.dark .ch,body.dark .rh{background:#2d2d2d;color:#aaa;border-color:#444}
 body.dark .dc{background:#1e1e1e;border-color:#333}
 body.dark .dc.sel{outline-color:#4caf50}
 body.dark .dc.inr{background:#1a3a25}

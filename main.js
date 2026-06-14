@@ -228,6 +228,22 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+// Fix: renderer sends 'trigger-saveas' when Ctrl+S is pressed with no file open
+ipcMain.on('trigger-saveas', async (event) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: 'D:\\JainSheet\\Book1',
+    filters: [
+      { name: 'Excel Workbook (.xlsx)', extensions: ['xlsx'] },
+      { name: 'Excel 97-2003 (.xls)', extensions: ['xls'] },
+      { name: 'JainSheet File (.json)', extensions: ['json'] },
+      { name: 'CSV File (.csv)', extensions: ['csv'] }
+    ]
+  });
+  if (!result.canceled) {
+    mainWindow.webContents.send('menu-saveas', result.filePath);
+  }
+});
+
 ipcMain.on('write-file', (event, { filePath, content, isBuffer }) => {
   try {
     const dir = path.dirname(filePath);

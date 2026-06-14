@@ -1,7 +1,7 @@
 const { ipcRenderer } = require('electron');
 const fs = require('fs');
 
-const COLS = 26, ROWS = 100;
+const COLS = 52, ROWS = 500;
 
 // ── Multi-Sheet State ─────────────────────────────────────────────────────────
 let sheets = [{
@@ -35,9 +35,9 @@ let _activeInp=null,_activeR=-1,_activeC=-1;
 let findResults=[],findIdx=0;
 let darkMode=false;
 
-const colName=c=>String.fromCharCode(65+c);
+function colName(c){if(c<26)return String.fromCharCode(65+c);return String.fromCharCode(65+Math.floor(c/26)-1)+String.fromCharCode(65+(c%26));}
 const cellId=(r,c)=>colName(c)+(r+1);
-function parseRef(ref){const m=ref.match(/^([A-Z]+)(\d+)$/);if(!m)return null;return{r:parseInt(m[2])-1,c:m[1].charCodeAt(0)-65};}
+function parseRef(ref){var clean=ref.replace(/$/g,'');var m=clean.match(/^([A-Z]{1,2})(\d+)$/);if(!m)return null;var col=m[1];var c=col.length===1?col.charCodeAt(0)-65:(col.charCodeAt(0)-64)*26+(col.charCodeAt(1)-65);return{r:parseInt(m[2])-1,c:c};}
 const getRaw=(r,c)=>data[cellId(r,c)]||'';
 function setRaw(r,c,v,skipUndo){
   if(sheetProtected&&lockedCells.has(cellId(r,c))){alert('Cell '+cellId(r,c)+' is locked.');return;}
@@ -245,7 +245,7 @@ function buildGrid(){
   table.innerHTML='';
   var thead=document.createElement('thead');
   var hr=document.createElement('tr');
-  var corner=document.createElement('th');corner.className='ch rh';hr.appendChild(corner);
+  var corner=document.createElement('th');corner.className='ch rh';corner.style.width='52px';corner.style.minWidth='52px';hr.appendChild(corner);
   for(var c=0;c<COLS;c++){
     var th=document.createElement('th');th.className='ch';th.id='ch-'+c;
     var w=colWidths[c]||82;th.style.width=w+'px';th.style.minWidth=w+'px';th.style.position='relative';
@@ -257,7 +257,7 @@ function buildGrid(){
   var tbody=document.createElement('tbody');
   for(var r=0;r<ROWS;r++){
     var tr=document.createElement('tr');tr.id='tr-'+r;var rh2=rowHeights[r]||22;tr.style.height=rh2+'px';
-    var rh=document.createElement('th');rh.className='ch rh';rh.id='rh-'+r;rh.style.position='relative';
+    var rh=document.createElement('th');rh.className='ch rh';rh.id='rh-'+r;rh.style.position='relative';rh.style.width='52px';rh.style.minWidth='52px';
     rh.innerHTML='<span style="pointer-events:none">'+(r+1)+'</span>';
     (function(rr){var rdh=document.createElement('div');rdh.style.cssText='position:absolute;bottom:0;left:0;width:100%;height:3px;cursor:row-resize;z-index:5;';rdh.addEventListener('mousedown',function(e){startRowResize(e,rr);});rh.appendChild(rdh);})(r);
     tr.appendChild(rh);
@@ -332,7 +332,7 @@ function buildGrid(){
   table.appendChild(tbody);
   populateSortCols();
   // Force explicit table width so Electron renders all columns
-  var totalW = 42 + (COLS * 82);
+  var totalW = 52 + (COLS * 82);
   table.style.width = totalW + 'px';
 }
 

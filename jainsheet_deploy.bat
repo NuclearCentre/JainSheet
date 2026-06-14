@@ -1,10 +1,6 @@
 @echo off
-REM ═══════════════════════════════════════════════════════
-REM  JainSheet Deploy Tool
-REM  Double-click OR run from PowerShell — never disappears
-REM ═══════════════════════════════════════════════════════
-
-REM Keep window open no matter what happens
+REM JainSheet Deploy Tool
+REM -------------------------------------------------------
 if "%1"=="RELAUNCHED" goto :MAIN
 start "JainSheet Deploy" /WAIT cmd /k "%~f0" RELAUNCHED
 exit
@@ -12,43 +8,30 @@ exit
 :MAIN
 title JainSheet Deploy Tool
 color 0A
+cd /d D:\JainSheet
 
 echo.
 echo  ============================================================
-echo   JainSheet Deploy Tool
+echo   JainSheet Deploy Tool v2.1
 echo   Project : D:\JainSheet
 echo   GitHub  : https://github.com/NuclearCentre/JainSheet
 echo  ============================================================
 echo.
 
-REM ── Force working directory ───────────────────────────────────────────────────
-echo Checking project folder...
-if not exist "D:\JainSheet\" (
-    echo.
-    echo [ERROR] D:\JainSheet folder not found!
-    echo         Make sure your project is at D:\JainSheet\
-    echo.
-    pause
-    exit /b 1
-)
-cd /d D:\JainSheet
-echo Working directory: %CD%
-echo.
-
-REM ── Fix Git safe directory (prevents "dubious ownership" error) ───────────────
-git config --global --add safe.directory "D:/JainSheet" >nul 2>&1
+REM Fix Git config (prevents dubious ownership + missing identity errors)
 git config --global --add safe.directory "*" >nul 2>&1
 git config --global user.name "NuclearCentre" >nul 2>&1
 git config --global user.email "admin@jainsheet.com" >nul 2>&1
 
-REM ── STEP 1: node_modules check ───────────────────────────────────────────────
-echo [1/5] Checking node_modules...
+REM -------------------------------------------------------
+REM STEP 1: Check node_modules
+REM -------------------------------------------------------
+echo [1/5] Checking dependencies...
 if not exist "D:\JainSheet\node_modules\" (
-    echo       Not found - running npm install...
+    echo       node_modules not found - running npm install...
     cd /d D:\JainSheet
     call npm install
     if errorlevel 1 (
-        echo.
         echo [ERROR] npm install failed.
         pause
         exit /b 1
@@ -58,26 +41,30 @@ if not exist "D:\JainSheet\node_modules\" (
     echo       OK.
 )
 
-REM ── STEP 2: Syntax check ─────────────────────────────────────────────────────
+REM -------------------------------------------------------
+REM STEP 2: Syntax check JS files
+REM -------------------------------------------------------
 echo.
 echo [2/5] Checking JS syntax...
 cd /d D:\JainSheet
 node --check main.js
 if errorlevel 1 (
-    echo [ERROR] main.js has a syntax error. Fix it first.
+    echo [ERROR] main.js has syntax errors. Fix before building.
     pause
     exit /b 1
 )
 node --check renderer.js
 if errorlevel 1 (
-    echo [ERROR] renderer.js has a syntax error. Fix it first.
+    echo [ERROR] renderer.js has syntax errors. Fix before building.
     pause
     exit /b 1
 )
 echo       main.js OK
 echo       renderer.js OK
 
-REM ── STEP 3: Kill running JainSheet ───────────────────────────────────────────
+REM -------------------------------------------------------
+REM STEP 3: Kill running JainSheet
+REM -------------------------------------------------------
 echo.
 echo [3/5] Stopping JainSheet if running...
 tasklist 2>nul | find /i "JainSheet.exe" >nul
@@ -89,82 +76,68 @@ if not errorlevel 1 (
     echo       Not running.
 )
 
-REM ── STEP 4: Build ────────────────────────────────────────────────────────────
+REM -------------------------------------------------------
+REM STEP 4: Build installer
+REM -------------------------------------------------------
 echo.
 echo [4/5] Building installer...
 cd /d D:\JainSheet
 call npm run dist
 if errorlevel 1 (
-    echo.
     echo [ERROR] Build failed. See errors above.
     pause
     exit /b 1
 )
-echo.
-echo       Build complete: D:\JainSheet\dist\JainSheet-Setup.exe
+echo       Built: D:\JainSheet\dist\JainSheet-Setup.exe
 
-REM ── STEP 5: Git push ─────────────────────────────────────────────────────────
+REM -------------------------------------------------------
+REM STEP 5: Push to GitHub
+REM -------------------------------------------------------
 echo.
-echo [5/5] Saving to GitHub...
+echo [5/5] GitHub push...
+echo.
+echo  Open PowerShell and run:
+echo.
+echo    $env:GH_TOKEN = "YOUR_TOKEN_HERE"
+echo    .\jainsheet_push.ps1
+echo.
+echo  Get token: https://github.com/settings/tokens  (scope: repo)
+echo.
+
+REM Auto-push attempt via git credential prompt
 cd /d D:\JainSheet
-
-REM Check git is installed
-where git >nul 2>&1
-if errorlevel 1 (
-    echo [WARN] git not found. Install Git from https://git-scm.com
-    goto :DONE
-)
-
-REM Init repo if needed
 if not exist "D:\JainSheet\.git\" (
     echo       Initialising git repo...
-    cd /d D:\JainSheet
     git init
     git remote add origin https://github.com/NuclearCentre/JainSheet.git
 )
 
-REM Stage files
-cd /d D:\JainSheet
-git add main.js renderer.js index.html package.json jainsheet_deploy.bat
-if exist ".gitignore" git add .gitignore
+git -C "D:\JainSheet" add main.js renderer.js index.html package.json jainsheet_deploy.bat jainsheet_push.ps1
+if exist "D:\JainSheet\.gitignore" git -C "D:\JainSheet" add .gitignore
 
-REM Check for changes
-git diff --cached --quiet
+git -C "D:\JainSheet" diff --cached --quiet
 if not errorlevel 1 (
-    echo       No changes - already up to date.
+    echo       Nothing to commit - already up to date.
     goto :DONE
 )
 
-REM Build timestamp for commit message
 set DT=%DATE% %TIME%
-git commit -m "JainSheet update %DT%"
+git -C "D:\JainSheet" commit -m "JainSheet update %DT%"
 if errorlevel 1 (
-    echo [ERROR] git commit failed. See above.
-    pause
+    echo [WARN] Commit failed. Use the PowerShell command above to push manually.
     goto :DONE
 )
 
-REM Push
 echo.
-echo  ------------------------------------------------------------
-echo   ENTERING GITHUB CREDENTIALS:
-echo   When prompted -
-echo     Username: NuclearCentre
-echo     Password: paste your Personal Access Token
-echo   Get token: https://github.com/settings/tokens
-echo   Scope: repo (full control)
-echo  ------------------------------------------------------------
+echo  Enter GitHub credentials when prompted:
+echo    Username : NuclearCentre
+echo    Password : paste your Personal Access Token
 echo.
-git push origin main
+git -C "D:\JainSheet" push origin main
 if errorlevel 1 (
-    echo.
-    echo [WARN] Push failed. Try these:
-    echo   1. Generate new token at https://github.com/settings/tokens
-    echo   2. Make sure scope is 'repo'
-    echo   3. Check internet connection
+    echo [WARN] Push failed. Use the PowerShell command above instead.
 ) else (
-    echo.
-    echo  *** Saved to GitHub successfully! ***
+    echo  *** Pushed to GitHub successfully! ***
 )
 
 :DONE

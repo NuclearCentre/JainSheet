@@ -76,8 +76,12 @@ function buildMenu() {
             if (!result.canceled && result.filePaths.length > 0) {
               const filePath = result.filePaths[0];
               const ext = path.extname(filePath).toLowerCase();
-              const content = fs.readFileSync(filePath, 'utf8');
-              mainWindow.webContents.send('menu-open', { content, filePath });
+              // xlsx/xls are binary — read as base64 so SheetJS can decode correctly
+              const isBinary = (ext === '.xlsx' || ext === '.xls');
+              const content = isBinary
+                ? fs.readFileSync(filePath).toString('base64')
+                : fs.readFileSync(filePath, 'utf8');
+              mainWindow.webContents.send('menu-open', { content, filePath, isBinary });
             }
           }
         },

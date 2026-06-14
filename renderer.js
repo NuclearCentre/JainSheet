@@ -1197,13 +1197,57 @@ function buildSymbolGrid(){
 // ── Save/Load/Export ──────────────────────────────────────────────────────────
 function markUnsaved(){unsaved=true;document.getElementById('save-status').textContent='● Unsaved';}
 function markSaved(){unsaved=false;document.getElementById('save-status').textContent='✓ Saved';setTimeout(function(){if(!unsaved)document.getElementById('save-status').textContent='';},2000);}
-function getState(){return JSON.stringify({data:data,cellFmt:cellFmt,cellStyle:cellStyle,cellComments:cellComments,namedRanges:namedRanges,lockedCells:Array.from(lockedCells)});}
+function getState(){
+  return JSON.stringify({
+    version:2,
+    activeSheet:activeSheet,
+    sheets:sheets.map(function(sh){
+      return {
+        name:sh.name,
+        data:sh.data,
+        cellFmt:sh.cellFmt,
+        cellStyle:sh.cellStyle,
+        cellComments:sh.cellComments,
+        namedRanges:sh.namedRanges,
+        lockedCells:Array.from(sh.lockedCells),
+        colWidths:sh.colWidths,
+        rowHeights:sh.rowHeights
+      };
+    })
+  });
+}
 function loadState(json){
   var s=JSON.parse(json);
-  Object.assign(data,s.data||{});Object.assign(cellFmt,s.cellFmt||{});Object.assign(cellStyle,s.cellStyle||{});
-  Object.assign(cellComments,s.cellComments||{});Object.assign(namedRanges,s.namedRanges||{});
-  if(s.lockedCells)s.lockedCells.forEach(function(id){lockedCells.add(id);});
-  renderAll();
+  // v2 multi-sheet format
+  if(s.version===2&&s.sheets){
+    sheets=s.sheets.map(function(sh){
+      return {
+        name:sh.name||'Sheet1',
+        data:sh.data||{},
+        cellFmt:sh.cellFmt||{},
+        cellStyle:sh.cellStyle||{},
+        cellComments:sh.cellComments||{},
+        namedRanges:sh.namedRanges||{},
+        lockedCells:new Set(sh.lockedCells||[]),
+        colWidths:sh.colWidths||{},
+        rowHeights:sh.rowHeights||{}
+      };
+    });
+    activeSheet=s.activeSheet||0;
+    bindSheet();
+    renderSheetTabs();
+    renderAll();
+  } else {
+    // v1 backward compat — single sheet
+    bindSheet();
+    Object.assign(data,s.data||{});
+    Object.assign(cellFmt,s.cellFmt||{});
+    Object.assign(cellStyle,s.cellStyle||{});
+    Object.assign(cellComments,s.cellComments||{});
+    Object.assign(namedRanges,s.namedRanges||{});
+    if(s.lockedCells)s.lockedCells.forEach(function(id){lockedCells.add(id);});
+    renderAll();
+  }
 }
 function exportCsv(){
   var csv='';
@@ -1220,36 +1264,138 @@ function exportXlsx(filePath){
   try {
     var XLSX = require('xlsx');
     var wb = XLSX.utils.book_new();
+
+    // Helper: parse CSS border string like "1px solid #ff0000"
+    function parseBorderStr(cssStr){
+      if(!cssStr) return null;
+      var parts = cssStr.trim().split(/\s+/);
+      var px = parseInt(parts[0]) || 1;
+      var bStyle = px >= 2 ? 'medium' : 'thin';
+      if(parts[1] === 'dashed') bStyle = 'dashed';
+      if(parts[1] === 'dotted') bStyle = 'dotted';
+      var col = (parts[2] || '#000000').replace('#','').padStart(6,'0');
+      return { style: bStyle, color: { rgb: col.toUpperCase() } };
+    }
+
+    // Helper: rgb/hex color to ARGB string for SheetJS
+    function toRgb(hex){
+      if(!hex) return null;
+      return hex.replace('#','').padStart(6,'0').toUpperCase();
+    }
+
     sheets.forEach(function(sh){
-      var aoa = [];
       var maxR = 0, maxC = 0;
       Object.keys(sh.data).forEach(function(id){
         var p = parseRef(id);
-        if(p){maxR=Math.max(maxR,p.r);maxC=Math.max(maxC,p.c);}
+        if(p){ maxR=Math.max(maxR,p.r); maxC=Math.max(maxC,p.c); }
       });
-      for(var r=0;r<=maxR;r++){
-        var row=[];
-        for(var c=0;c<=maxC;c++){
-          var v=sh.data[cellId(r,c)]||'';
-          // Evaluate formulas for export
-          if(v&&v.startsWith('=')){
-            var ev=evalFormula(v);
-            row.push(isNaN(parseFloat(ev))?String(ev):parseFloat(ev));
-          } else {
-            row.push(isNaN(parseFloat(v))||v===''?v:parseFloat(v));
-          }
-        }
-        aoa.push(row);
+      if(maxR === 0 && maxC === 0 && !sh.data['A1']) {
+        // Empty sheet — still append it
+        var ws = {};
+        ws['!ref'] = 'A1';
+        XLSX.utils.book_append_sheet(wb, ws, sh.name);
+        return;
       }
-      var ws = XLSX.utils.aoa_to_sheet(aoa);
+
+      var ws = {};
+      for(var r=0; r<=maxR; r++){
+        for(var c=0; c<=maxC; c++){
+          var id = cellId(r,c);
+          var raw = sh.data[id];
+          var fmt = sh.cellFmt[id] || '';
+          var st  = sh.cellStyle[id] || {};
+          var addr = XLSX.utils.encode_cell({r:r, c:c});
+          var cell = {};
+
+          // ── Value / Formula ──────────────────────────────────────────────
+          if(raw && raw.startsWith('=')){
+            cell.f = raw.slice(1);          // formula (Excel re-evaluates)
+            var ev = evalFormula(raw);
+            var evN = parseFloat(ev);
+            if(!isNaN(evN)){ cell.v = evN; cell.t = 'n'; }
+            else { cell.v = String(ev); cell.t = 's'; }
+          } else if(raw !== undefined && raw !== '') {
+            var n = parseFloat(raw);
+            if(!isNaN(n) && String(raw).trim() !== ''){
+              cell.v = n; cell.t = 'n';
+            } else {
+              cell.v = raw; cell.t = 's';
+            }
+          } else {
+            continue; // skip empty cells
+          }
+
+          // ── Style object ─────────────────────────────────────────────────
+          var xf = {};
+
+          // Font
+          var font = {};
+          if(st.bold)       font.bold      = true;
+          if(st.italic)     font.italic    = true;
+          if(st.underline)  font.underline = true;
+          if(st.strike)     font.strike    = true;
+          if(st.fontSize)   font.sz        = parseInt(st.fontSize);
+          if(st.fontFamily) font.name      = st.fontFamily;
+          if(st.color)      font.color     = { rgb: toRgb(st.color) };
+          if(Object.keys(font).length) xf.font = font;
+
+          // Fill
+          if(st.bg){
+            xf.fill = { patternType: 'solid', fgColor: { rgb: toRgb(st.bg) } };
+          }
+
+          // Alignment
+          var align = {};
+          if(st.align === 'left')   align.horizontal = 'left';
+          if(st.align === 'center') align.horizontal = 'center';
+          if(st.align === 'right')  align.horizontal = 'right';
+          if(st.wrap)               align.wrapText   = true;
+          if(Object.keys(align).length) xf.alignment = align;
+
+          // Borders
+          var border = {};
+          var bTop = parseBorderStr(st.bt); if(bTop) border.top    = bTop;
+          var bBot = parseBorderStr(st.bb); if(bBot) border.bottom = bBot;
+          var bLft = parseBorderStr(st.bl); if(bLft) border.left   = bLft;
+          var bRgt = parseBorderStr(st.br); if(bRgt) border.right  = bRgt;
+          if(Object.keys(border).length) xf.border = border;
+
+          // Number format
+          var numFmt = '';
+          if(fmt === 'currency') numFmt = '"₹"#,##0.00';
+          if(fmt === 'usd')      numFmt = '"$"#,##0.00';
+          if(fmt === 'percent')  numFmt = '0.00%';
+          if(fmt === 'number')   numFmt = '0.00';
+          if(fmt === 'integer')  numFmt = '0';
+          if(fmt === 'sci')      numFmt = '0.00E+00';
+          if(fmt === 'date')     numFmt = 'DD/MM/YYYY';
+          if(fmt === 'time')     numFmt = 'HH:MM:SS';
+          if(numFmt) xf.numFmt = numFmt;
+
+          if(Object.keys(xf).length) cell.s = xf;
+
+          ws[addr] = cell;
+        }
+      }
+
+      ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:maxR,c:maxC}});
+
+      // Column widths (pixels → Excel character units: divide by ~7)
+      var cols = [];
+      for(var c=0; c<=maxC; c++){
+        cols.push({ wch: Math.max(8, Math.round((sh.colWidths[c] || 82) / 7)) });
+      }
+      ws['!cols'] = cols;
+
       XLSX.utils.book_append_sheet(wb, ws, sh.name);
     });
+
     var ext = filePath.split('.').pop().toLowerCase();
     var bookType = ext === 'xls' ? 'biff8' : 'xlsx';
-    var buf = XLSX.write(wb, {type:'base64', bookType: bookType});
+    var buf = XLSX.write(wb, { type:'base64', bookType: bookType, cellStyles: true });
     ipcRenderer.send('write-file', {filePath: filePath, content: buf, isBuffer: true});
   } catch(e) {
-    alert('XLSX export failed: '+e.message+'\n\nMake sure xlsx package is installed:\nnpm install xlsx');
+    alert('XLSX export failed: '+e.message);
   }
 }
 
@@ -1495,48 +1641,6 @@ function showShortcuts(){
   openModal('modal-shortcuts');
 }
 
-// ── Enhanced Save / Load (multi-sheet) ───────────────────────────────────────
-function getState(){
-  return JSON.stringify({
-    version:2,
-    activeSheet,
-    sheets:sheets.map(function(sh){
-      return {name:sh.name,data:sh.data,cellFmt:sh.cellFmt,cellStyle:sh.cellStyle,
-        cellComments:sh.cellComments,namedRanges:sh.namedRanges,
-        lockedCells:Array.from(sh.lockedCells),colWidths:sh.colWidths,rowHeights:sh.rowHeights};
-    })
-  });
-}
-function loadState(json){
-  var s=JSON.parse(json);
-  if(s.version===2&&s.sheets){
-    sheets=s.sheets.map(function(sh){
-      return {name:sh.name,data:sh.data||{},cellFmt:sh.cellFmt||{},cellStyle:sh.cellStyle||{},
-        cellComments:sh.cellComments||{},namedRanges:sh.namedRanges||{},
-        lockedCells:new Set(sh.lockedCells||[]),
-        colWidths:sh.colWidths||{},rowHeights:sh.rowHeights||{}};
-    });
-    activeSheet=s.activeSheet||0;
-    bindSheet();renderAll();renderSheetTabs();
-  } else {
-    // v1 compatibility
-    bindSheet();
-    Object.assign(data,s.data||{});Object.assign(cellFmt,s.cellFmt||{});Object.assign(cellStyle,s.cellStyle||{});
-    Object.assign(cellComments,s.cellComments||{});Object.assign(namedRanges,s.namedRanges||{});
-    if(s.lockedCells)s.lockedCells.forEach(function(id){lockedCells.add(id);});
-    renderAll();renderSheetTabs();
-  }
-}
-function exportCsv(){
-  var csv='';
-  for(var r=0;r<ROWS;r++){
-    var row=[],hasData=false;
-    for(var c=0;c<COLS;c++){var v=getRaw(r,c);if(v)hasData=true;row.push(v.indexOf(',')>=0?'"'+v+'"':v);}
-    if(hasData)csv+=row.join(',')+'\n';
-  }
-  return csv;
-}
-
 // ── Enhanced IPC ──────────────────────────────────────────────────────────────
 ipcRenderer.on('menu-new',function(){
   if(unsaved&&!confirm('Unsaved changes. Continue?'))return;
@@ -1546,21 +1650,158 @@ ipcRenderer.on('menu-new',function(){
   document.getElementById('file-name').textContent='— Book1';document.getElementById('save-status').textContent='';unsaved=false;
   document.getElementById('sb-mode').textContent='Ready';
 });
+// ── XLSX Import via SheetJS ───────────────────────────────────────────────────
+function importXlsx(base64Content){
+  var XLSX = require('xlsx');
+  var wb = XLSX.read(base64Content, {
+    type: 'base64',
+    cellStyles: true,    // read fill/font/border
+    cellFormula: true,   // read formulas as .f
+    cellDates: true,     // parse dates
+    cellNF: true         // read number formats
+  });
+
+  sheets = [];
+
+  wb.SheetNames.forEach(function(shName){
+    var ws = wb.Sheets[shName];
+    var shData = {}, shFmt = {}, shStyle = {};
+
+    if(!ws['!ref']){
+      sheets.push({name:shName,data:{},cellFmt:{},cellStyle:{},
+        cellComments:{},lockedCells:new Set(),namedRanges:{},colWidths:{},rowHeights:{}});
+      return;
+    }
+
+    var range = XLSX.utils.decode_range(ws['!ref']);
+
+    for(var r = range.s.r; r <= range.e.r; r++){
+      for(var c = range.s.c; c <= range.e.c; c++){
+        var addr = XLSX.utils.encode_cell({r:r, c:c});
+        var cell = ws[addr];
+        if(!cell) continue;
+
+        var id = cellId(r, c);
+
+        // ── Value / Formula ────────────────────────────────────────────────
+        if(cell.f){
+          shData[id] = '=' + cell.f;
+        } else if(cell.v !== undefined && cell.v !== null && cell.v !== ''){
+          shData[id] = String(cell.w || cell.v);  // prefer formatted value
+        }
+
+        // ── Number format → cellFmt ────────────────────────────────────────
+        var nf = (cell.z || (cell.s && cell.s.numFmt) || '').toLowerCase();
+        if(nf.includes('%'))               shFmt[id] = 'percent';
+        else if(nf.includes('₹')||nf.includes('inr')) shFmt[id] = 'currency';
+        else if(nf.includes('$'))          shFmt[id] = 'usd';
+        else if(nf.includes('e+'))         shFmt[id] = 'sci';
+        else if(nf.includes('dd/mm')||nf.includes('yyyy')) shFmt[id] = 'date';
+        else if(nf.includes('hh:mm'))      shFmt[id] = 'time';
+        else if(nf === '0.00')             shFmt[id] = 'number';
+        else if(nf === '0')                shFmt[id] = 'integer';
+
+        // ── Cell style → cellStyle ─────────────────────────────────────────
+        if(cell.s){
+          var s = cell.s;
+          var st = {};
+
+          // Font
+          if(s.font){
+            if(s.font.bold)      st.bold      = true;
+            if(s.font.italic)    st.italic    = true;
+            if(s.font.underline) st.underline = true;
+            if(s.font.strike)    st.strike    = true;
+            if(s.font.sz)        st.fontSize  = s.font.sz;
+            if(s.font.name)      st.fontFamily= s.font.name;
+            if(s.font.color && s.font.color.rgb)
+              st.color = '#' + s.font.color.rgb.slice(-6);
+          }
+
+          // Fill
+          if(s.fill && s.fill.fgColor && s.fill.fgColor.rgb &&
+             s.fill.fgColor.rgb !== 'FFFFFF' && s.fill.fgColor.rgb !== '000000'){
+            var rgb = s.fill.fgColor.rgb.slice(-6);
+            if(rgb && rgb !== 'FFFFFF') st.bg = '#' + rgb;
+          }
+
+          // Alignment
+          if(s.alignment){
+            if(s.alignment.horizontal) st.align   = s.alignment.horizontal;
+            if(s.alignment.wrapText)   st.wrap    = true;
+          }
+
+          // Borders — store as CSS string "1px solid #rrggbb"
+          var borderSides = {top:'bt', bottom:'bb', left:'bl', right:'br'};
+          Object.keys(borderSides).forEach(function(side){
+            if(s.border && s.border[side] && s.border[side].style){
+              var bStyle = s.border[side].style;
+              var px = (bStyle === 'medium' || bStyle === 'thick') ? '2px' : '1px';
+              var lineStyle = (bStyle === 'dashed') ? 'dashed' :
+                              (bStyle === 'dotted') ? 'dotted' : 'solid';
+              var col = '#000000';
+              if(s.border[side].color && s.border[side].color.rgb)
+                col = '#' + s.border[side].color.rgb.slice(-6);
+              st[borderSides[side]] = px + ' ' + lineStyle + ' ' + col;
+            }
+          });
+
+          if(Object.keys(st).length) shStyle[id] = st;
+        }
+      }
+    }
+
+    // Column widths (Excel wch units → pixels: multiply by ~7)
+    var colWidths = {};
+    if(ws['!cols']){
+      ws['!cols'].forEach(function(col, i){
+        if(col && col.wch) colWidths[i] = Math.round(col.wch * 7);
+      });
+    }
+
+    sheets.push({
+      name: shName,
+      data: shData,
+      cellFmt: shFmt,
+      cellStyle: shStyle,
+      cellComments: {},
+      lockedCells: new Set(),
+      namedRanges: {},
+      colWidths: colWidths,
+      rowHeights: {}
+    });
+  });
+
+  if(!sheets.length){
+    sheets = [{name:'Sheet1',data:{},cellFmt:{},cellStyle:{},
+      cellComments:{},lockedCells:new Set(),namedRanges:{},colWidths:{},rowHeights:{}}];
+  }
+
+  activeSheet = 0;
+  bindSheet();
+}
+
 ipcRenderer.on('menu-open',function(e,arg){
   try {
     // Fully clear state before loading
     sheets=[{name:'Sheet1',data:{},cellFmt:{},cellStyle:{},cellComments:{},lockedCells:new Set(),namedRanges:{},colWidths:{},rowHeights:{}}];
     activeSheet=0; bindSheet(); sheetProtected=false;
-    renderAll();
 
     var ext=(arg.filePath||'').split('.').pop().toLowerCase();
+
     if(ext==='csv'){
       importCsvContent(arg.content);
+    } else if(ext==='xlsx'||ext==='xls'){
+      importXlsx(arg.content);
     } else {
       loadState(arg.content);
     }
+
     currentFilePath=arg.filePath;
     document.getElementById('file-name').textContent='— '+arg.filePath.split(/[\\/]/).pop();
+    renderAll();
+    renderSheetTabs();
+    selectCell(0,0);
     markSaved();
   } catch(err){
     alert('Error opening file: '+err.message);
